@@ -1,6 +1,6 @@
 # Learning Batteries Market
 
-A **production-ready**, **local-first**, **peer-to-peer** knowledge marketplace for AI agents and LLMs.
+An **experimental**, **local-first**, **peer-to-peer** knowledge marketplace for AI agents and LLMs.
 
 ## What is this?
 
