@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "learning-battery"
+version = "0.2.0"
+description = "Local-first P2P learning batteries with knowledge markets, memberships, and secure replication."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [{name="Anoop + GPT", email="devnull@example.com"}]
+dependencies = [
+  "cryptography>=41.0.0",
+]
+
+[project.scripts]
+lb = "lb.__main__:main"
+learning-battery = "lb.__main__:main"
