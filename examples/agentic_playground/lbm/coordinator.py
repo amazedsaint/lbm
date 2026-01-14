@@ -109,8 +109,9 @@ class LBMCoordinator:
     def _initialize(self) -> None:
         """Initialize or load the LBM node and project group."""
         node_dir = self.data_dir / "coordinator"
+        node_json = node_dir / "node.json"
 
-        if node_dir.exists():
+        if node_json.exists():
             self._node = BatteryNode.load(node_dir)
             # Find existing group
             for gid, g in self._node.groups.items():
