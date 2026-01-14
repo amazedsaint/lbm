@@ -33,8 +33,14 @@ dev = [
 [project.scripts]
 agentic-playground = "agentic_playground.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
+[tool.setuptools]
+packages = [
+    "agentic_playground",
+    "agentic_playground.agents",
+    "agentic_playground.infra",
+    "agentic_playground.lbm",
+]
+package-dir = {"agentic_playground" = "."}
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

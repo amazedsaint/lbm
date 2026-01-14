@@ -140,7 +140,8 @@ def cmd_status(args):
 
     # Check LBM status
     lbm_dir = work_dir / ".lbm"
-    if lbm_dir.exists():
+    coordinator_node = lbm_dir / "coordinator" / "node.json"
+    if coordinator_node.exists():
         coordinator = LBMCoordinator(lbm_dir, config.get("name", "project"))
         stats = coordinator.get_stats()
 
@@ -173,9 +174,10 @@ def cmd_export(args):
 
     work_dir = Path(args.dir)
     lbm_dir = work_dir / ".lbm"
+    coordinator_node = lbm_dir / "coordinator" / "node.json"
 
-    if not lbm_dir.exists():
-        print("No LBM data found.")
+    if not coordinator_node.exists():
+        print("No LBM data found. Run 'agentic-playground run' first.")
         sys.exit(1)
 
     # Load config for project name
@@ -233,9 +235,10 @@ def cmd_knowledge(args):
 
     work_dir = Path(args.dir)
     lbm_dir = work_dir / ".lbm"
+    coordinator_node = lbm_dir / "coordinator" / "node.json"
 
-    if not lbm_dir.exists():
-        print("No LBM data found.")
+    if not coordinator_node.exists():
+        print("No LBM data found. Run 'agentic-playground run' first.")
         sys.exit(1)
 
     setup = ProjectSetup(work_dir)
