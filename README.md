@@ -1,5 +1,8 @@
 # Learning Batteries Market
 
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/amazedsaint/lbm)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
+
 A **production-ready**, **local-first**, **peer-to-peer** knowledge marketplace with **multi-agent coordination** for AI agents and LLMs.
 
 ## What is this?
