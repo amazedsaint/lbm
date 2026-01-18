@@ -5,6 +5,21 @@ This module provides a JSON-RPC over stdin/stdout interface for AI agent
 integration. It allows agents to publish claims, query context, manage tasks,
 and interact with the knowledge market.
 
+GitHub Integration
+==================
+The MCP interface supports automatic detection of .lbm/ directories in
+the working directory. When detected, it will:
+- Use the repository's LBM configuration
+- Load the node from .lbm/node/
+- Auto-register the agent if agent_auto_register is enabled
+
+This enables seamless integration when agents (Claude Code, Codex, etc.)
+are started in a repository with LBM initialized.
+
+Example:
+    # In a repo with .lbm/, pass working_dir to enable GitHub integration
+    run_mcp(data_dir="/path/to/node", working_dir="/path/to/repo")
+
 IMPORTANT: Single Identity Limitation
 =====================================
 The MCP interface operates with the identity of the node it's connected to.
@@ -26,6 +41,7 @@ Example multi-agent setup (Python API):
 
 The MCP interface is best suited for:
 - Single-agent integrations
+- GitHub-integrated repos with auto-registration
 - Centralized coordinator patterns where one identity manages all operations
 """
 from __future__ import annotations
@@ -33,11 +49,16 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import sys
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from . import __version__
 from .node import BatteryNode, NodeError
+from .logging_config import get_logger
+
+logger = get_logger("lb.mcp")
 
 
 class MCPParamError(Exception):
@@ -81,8 +102,119 @@ def _err(rid: Any, code: str, message: str) -> None:
     sys.stdout.flush()
 
 
-def run_mcp(data_dir: str) -> None:
+def _detect_lbm_repo(working_dir: Optional[str] = None) -> Optional[Path]:
+    """Detect .lbm/ directory in working directory or current directory.
+
+    Args:
+        working_dir: Explicit working directory to check. If None, uses cwd.
+
+    Returns:
+        Path to repo root if .lbm/ found, None otherwise.
+    """
+    check_dirs = []
+
+    if working_dir:
+        check_dirs.append(Path(working_dir).resolve())
+
+    # Also check current working directory
+    check_dirs.append(Path.cwd())
+
+    # Check environment variable for repo path
+    if env_repo := os.environ.get("LBM_REPO_PATH"):
+        check_dirs.append(Path(env_repo).resolve())
+
+    for d in check_dirs:
+        lbm_dir = d / ".lbm"
+        if lbm_dir.exists() and (lbm_dir / "config.json").exists():
+            return d
+
+    return None
+
+
+def _load_node_for_mcp(
+    data_dir: str,
+    working_dir: Optional[str] = None,
+    agent_name: Optional[str] = None,
+) -> tuple:
+    """Load node for MCP, with optional GitHub integration.
+
+    Args:
+        data_dir: Standard node data directory
+        working_dir: Working directory to check for .lbm/
+        agent_name: Optional agent name for auto-registration
+
+    Returns:
+        Tuple of (node, config_info) where config_info is None for standard nodes
+        or dict with GitHub integration info.
+    """
+    # Check for .lbm/ directory
+    repo_path = _detect_lbm_repo(working_dir)
+
+    if repo_path:
+        # Use GitHub-integrated node
+        try:
+            from .github_integration import (
+                is_lbm_initialized,
+                load_lbm_config,
+                get_or_create_node,
+                register_agent,
+            )
+
+            if is_lbm_initialized(repo_path):
+                config = load_lbm_config(repo_path)
+                node = get_or_create_node(repo_path)
+
+                config_info = {
+                    "github_integration": True,
+                    "github_repo": config.github_repo,
+                    "group_id": config.group_id,
+                    "group_name": config.group_name,
+                    "agent_auto_register": config.agent_auto_register,
+                }
+
+                logger.info(f"MCP using GitHub-integrated node for {config.github_repo}")
+
+                # Auto-register agent if enabled
+                if config.agent_auto_register and agent_name:
+                    try:
+                        agent_info = register_agent(repo_path, agent_name, agent_type="mcp")
+                        config_info["agent_registered"] = True
+                        config_info["agent_pub"] = agent_info["sign_pub"]
+                        logger.info(f"Auto-registered MCP agent: {agent_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to auto-register agent: {e}")
+
+                return node, config_info
+        except Exception as e:
+            logger.warning(f"Failed to load GitHub-integrated node: {e}")
+            # Fall through to standard loading
+
+    # Standard node loading
     node = BatteryNode.load(data_dir)
+    return node, None
+
+
+def run_mcp(
+    data_dir: str,
+    working_dir: Optional[str] = None,
+    agent_name: Optional[str] = None,
+) -> None:
+    """Run the MCP (Model Context Protocol) interface.
+
+    Args:
+        data_dir: Node data directory path
+        working_dir: Optional working directory to check for .lbm/ integration
+        agent_name: Optional agent name for auto-registration (when in GitHub repo)
+
+    The MCP interface reads JSON-RPC requests from stdin and writes responses
+    to stdout. When a .lbm/ directory is detected in the working directory,
+    it automatically uses the repository's LBM configuration.
+    """
+    # Generate default agent name if not provided
+    if not agent_name:
+        agent_name = f"mcp-{os.getpid()}"
+
+    node, config_info = _load_node_for_mcp(data_dir, working_dir, agent_name)
 
     for line in sys.stdin:
         line = line.strip()
@@ -100,7 +232,22 @@ def run_mcp(data_dir: str) -> None:
 
         try:
             if method == "initialize":
-                _ok(rid, {"node_id": node.node_id, "sign_pub": node.keys.sign_pub_b64, "enc_pub": node.keys.enc_pub_b64, "version": __version__})
+                response = {
+                    "node_id": node.node_id,
+                    "sign_pub": node.keys.sign_pub_b64,
+                    "enc_pub": node.keys.enc_pub_b64,
+                    "version": __version__,
+                }
+                # Include GitHub integration info if available
+                if config_info:
+                    response["github_integration"] = {
+                        "enabled": True,
+                        "github_repo": config_info.get("github_repo"),
+                        "group_id": config_info.get("group_id"),
+                        "group_name": config_info.get("group_name"),
+                        "agent_registered": config_info.get("agent_registered", False),
+                    }
+                _ok(rid, response)
             elif method == "list_groups":
                 gs = []
                 for gid, g in node.groups.items():

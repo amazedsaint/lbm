@@ -111,6 +111,8 @@ class BatteryNode:
         self.offer_book: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.RLock()
         self._registry = None  # Lazy-loaded peer registry
+        self._wal = None  # Lazy-loaded WAL
+        self._recover_wal()  # Recover any incomplete transactions on startup
         self._load_groups()
         self._load_offer_book()
 
@@ -158,6 +160,33 @@ class BatteryNode:
                 from .registry import PeerRegistry
                 self._registry = PeerRegistry(self.data_dir)
             return self._registry
+
+    # ---------- WAL (Write-Ahead Log) ----------
+
+    @property
+    def wal_dir(self) -> Path:
+        return self.data_dir / "wal"
+
+    @property
+    def wal(self):
+        """Get or create the WAL (lazy initialization, thread-safe)."""
+        if self._wal is not None:
+            return self._wal
+        with self._lock:
+            if self._wal is None:
+                from .wal import WriteAheadLog
+                self._wal = WriteAheadLog(self.wal_dir)
+            return self._wal
+
+    def _recover_wal(self) -> None:
+        """Recover any incomplete WAL transactions on startup."""
+        if self.wal_dir.exists():
+            from .wal import WriteAheadLog
+            wal = WriteAheadLog(self.wal_dir)
+            recovered = wal.recover()
+            if recovered > 0:
+                logger.info(f"Recovered {recovered} WAL transactions on startup")
+            self._wal = wal
 
     # ---------- initialization ----------
 
@@ -1222,6 +1251,8 @@ class BatteryNode:
             signer_keys: Optional keys to sign the block with. If not provided,
                         uses the node's default keys. This allows agents to sign
                         blocks with their own identity.
+
+        Uses WAL (Write-Ahead Log) for atomic persistence of chain + graph state.
         """
         keys = signer_keys or self.keys
         b = Block.make(
@@ -1233,7 +1264,9 @@ class BatteryNode:
             txs=txs,
         )
         g.chain.append(b)
-        g.save()
+        # Use WAL for atomic multi-file persistence
+        with self.wal.transaction() as tx:
+            g.save(wal_tx=tx)
         return b
 
     # ---------- group snapshot import/export ----------

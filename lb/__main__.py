@@ -338,7 +338,9 @@ def _cmd_run_p2p(args: argparse.Namespace) -> None:
 
 
 def _cmd_run_mcp(args: argparse.Namespace) -> None:
-    run_mcp(str(args.data))
+    working_dir = getattr(args, 'working_dir', None) or str(Path.cwd())
+    agent_name = getattr(args, 'agent_name', None)
+    run_mcp(str(args.data), working_dir=working_dir, agent_name=agent_name)
 
 
 def _cmd_run_admin(args: argparse.Namespace) -> None:
@@ -351,6 +353,176 @@ def _cmd_run_admin(args: argparse.Namespace) -> None:
         asyncio.run(run_admin(n, host=args.host, port=int(args.port)))
     except KeyboardInterrupt:
         print("\nStopping admin panel...")
+
+
+# ========== GitHub Integration ==========
+
+def _cmd_github_init(args: argparse.Namespace) -> None:
+    """Initialize LBM in a GitHub repository."""
+    from .github_integration import github_init, GitHubIntegrationError
+
+    # Use current directory as repo path (--data is node path, but for github we use cwd)
+    repo_path = Path.cwd()
+
+    try:
+        config = github_init(
+            repo_path,
+            github_repo=args.repo,
+            group_name=args.name,
+            relay_url=args.relay,
+        )
+        print(f"Initialized LBM in {repo_path}")
+        print(f"  GitHub repo: {config.github_repo}")
+        print(f"  Group: {config.group_name} ({config.group_id})")
+        print()
+        print("Next steps:")
+        print("  1. git add .lbm/")
+        print('  2. git commit -m "Initialize LBM knowledge sharing"')
+        print("  3. git push")
+    except GitHubIntegrationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def _cmd_github_join(args: argparse.Namespace) -> None:
+    """Join an existing LBM-enabled repository."""
+    from .github_integration import github_join, GitHubIntegrationError
+
+    repo_path = Path.cwd()
+
+    try:
+        config = github_join(repo_path)
+        print(f"Joined LBM in {repo_path}")
+        print(f"  Group: {config.group_name} ({config.group_id})")
+        print()
+        print("You can now collaborate with other contributors.")
+        print("Run 'lb github status --data .' to see connected peers.")
+    except GitHubIntegrationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def _cmd_github_sync(args: argparse.Namespace) -> None:
+    """Sync knowledge with collaborators."""
+    from .github_integration import github_sync, GitHubIntegrationError
+
+    repo_path = Path.cwd()
+
+    files_changed = None
+    if args.files:
+        files_changed = [f.strip() for f in args.files.split(",") if f.strip()]
+
+    try:
+        result = github_sync(
+            repo_path,
+            commit_msg=args.commit,
+            files_changed=files_changed,
+        )
+        if result["synced_from"]:
+            print(f"Synced from: {', '.join(result['synced_from'])}")
+        if result["claim_published"]:
+            print("Published commit as knowledge claim")
+        if result["sync_errors"]:
+            for err in result["sync_errors"]:
+                print(f"  Warning: Could not sync from {err['peer']}: {err['error']}", file=sys.stderr)
+        if not result["synced_from"] and not result["claim_published"]:
+            print("No peers to sync with. Add peers or commit changes.")
+    except GitHubIntegrationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def _cmd_github_status(args: argparse.Namespace) -> None:
+    """Show LBM status for this repository."""
+    from .github_integration import github_status
+
+    repo_path = Path.cwd()
+    status = github_status(repo_path)
+
+    if not status.get("initialized"):
+        print("LBM not initialized in this repository.")
+        print("Run 'lb github init --data .' to initialize.")
+        return
+
+    print(f"GitHub Repository: {status['github_repo']}")
+    print(f"Knowledge Group: {status['group_name']} ({status['group_id'][:12]}...)")
+    print(f"Your Identity: {status['my_identity']} (node: {status['node_id']})")
+    print()
+
+    if status.get("group"):
+        g = status["group"]
+        print(f"Group Stats:")
+        print(f"  Chain height: {g['height']}")
+        print(f"  Claims: {g['claims']}")
+        print(f"  Members: {g['members']}")
+        print()
+
+    print(f"Peers ({len(status['peers'])}):")
+    for peer in status["peers"]:
+        marker = " (you)" if peer["is_self"] else ""
+        addr = " [has address]" if peer["has_address"] else ""
+        print(f"  - {peer['github_user']}{marker}{addr}")
+
+    print()
+    print("Configuration:")
+    cfg = status["config"]
+    print(f"  Sync on commit: {cfg['sync_on_commit']}")
+    print(f"  Agent auto-register: {cfg['agent_auto_register']}")
+    if cfg.get("relay_url"):
+        print(f"  Relay: {cfg['relay_url']}")
+
+
+def _cmd_github_agent_register(args: argparse.Namespace) -> None:
+    """Register an AI agent with unique identity."""
+    from .github_integration import register_agent, GitHubIntegrationError
+
+    repo_path = Path.cwd()
+
+    try:
+        result = register_agent(repo_path, args.name, args.type)
+        print(f"Registered agent: {result['agent_name']} ({result['agent_type']})")
+        print(f"  Public key: {result['sign_pub'][:20]}...")
+        print(f"  Group: {result['group_id']}")
+        print()
+        print("Agent can now publish claims and participate in the knowledge group.")
+    except GitHubIntegrationError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def _cmd_github_hooks(args: argparse.Namespace) -> None:
+    """Manage git hooks for LBM."""
+    from .git_hooks import install_hooks, uninstall_hooks, list_hooks
+
+    repo_path = Path.cwd()
+
+    if args.install:
+        try:
+            installed = install_hooks(repo_path, force=args.force)
+            if installed:
+                print(f"Installed hooks: {', '.join(installed)}")
+            else:
+                print("No hooks installed (already exist or error)")
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            raise SystemExit(1)
+    elif args.uninstall:
+        uninstalled = uninstall_hooks(repo_path)
+        if uninstalled:
+            print(f"Uninstalled hooks: {', '.join(uninstalled)}")
+        else:
+            print("No LBM hooks found to uninstall")
+    elif args.list:
+        hooks = list_hooks(repo_path)
+        print("Hook Status:")
+        for hook in hooks:
+            status = "installed" if hook["installed"] else "not installed"
+            lbm = " (LBM)" if hook.get("is_lbm_hook") else ""
+            note = f" - {hook['note']}" if hook.get("note") else ""
+            print(f"  {hook['name']}: {status}{lbm}{note}")
+    else:
+        print("Specify --install, --uninstall, or --list")
+        raise SystemExit(1)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -464,6 +636,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=_cmd_run_p2p)
 
     s = sub.add_parser("run-mcp", help="run the local MCP-like tool server (stdio JSON-RPC)")
+    s.add_argument("--working-dir", dest="working_dir", help="working directory to check for .lbm/ (default: cwd)")
+    s.add_argument("--agent-name", dest="agent_name", help="agent name for auto-registration in GitHub repos")
     s.set_defaults(func=_cmd_run_mcp)
 
     s = sub.add_parser("run-admin", help="run the web-based admin panel")
@@ -521,6 +695,40 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("run-sync-daemon", help="run sync daemon standalone")
     s.set_defaults(func=_cmd_run_sync_daemon)
+
+    # ===== GitHub Integration =====
+    github_parser = sub.add_parser("github", help="GitHub integration commands")
+    github_sub = github_parser.add_subparsers(dest="github_cmd", required=True)
+
+    s = github_sub.add_parser("init", help="initialize LBM in a GitHub repository")
+    s.add_argument("--repo", help="GitHub repo (owner/repo). Auto-detected if not provided.")
+    s.add_argument("--name", help="Knowledge group name. Defaults to repo name.")
+    s.add_argument("--relay", default=None, help="Relay server URL for NAT traversal")
+    s.add_argument("--no-hooks", action="store_true", help="Don't install git hooks")
+    s.set_defaults(func=_cmd_github_init)
+
+    s = github_sub.add_parser("join", help="join an existing LBM-enabled repository")
+    s.set_defaults(func=_cmd_github_join)
+
+    s = github_sub.add_parser("sync", help="sync knowledge with collaborators")
+    s.add_argument("--commit", help="Commit message to publish as knowledge")
+    s.add_argument("--files", help="Comma-separated list of changed files")
+    s.set_defaults(func=_cmd_github_sync)
+
+    s = github_sub.add_parser("status", help="show LBM status for this repository")
+    s.set_defaults(func=_cmd_github_status)
+
+    s = github_sub.add_parser("agent-register", help="register an AI agent with unique identity")
+    s.add_argument("--name", required=True, help="Agent name (e.g., claude-session-123)")
+    s.add_argument("--type", default="claude", help="Agent type (claude, codex, etc.)")
+    s.set_defaults(func=_cmd_github_agent_register)
+
+    s = github_sub.add_parser("hooks", help="manage git hooks")
+    s.add_argument("--install", action="store_true", help="Install hooks")
+    s.add_argument("--uninstall", action="store_true", help="Uninstall hooks")
+    s.add_argument("--list", action="store_true", help="List hook status")
+    s.add_argument("--force", action="store_true", help="Force overwrite existing hooks")
+    s.set_defaults(func=_cmd_github_hooks)
 
     return p
 

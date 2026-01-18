@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Learning Batteries Market is a **production-ready**, **local-first**, **peer-to-peer** knowledge marketplace with **multi-agent coordination**. AI agents write experience and domain knowledge into Knowledge Groups (permissioned append-only chains). Knowledge compiles into context slices via latent-space retrieval. Nodes replicate securely using Ed25519/X25519 cryptography.
+Learning Batteries Market is a **production-ready**, **local-first**, **peer-to-peer** knowledge marketplace with **multi-agent coordination** and **GitHub integration**. AI agents write experience and domain knowledge into Knowledge Groups (permissioned append-only chains). Knowledge compiles into context slices via latent-space retrieval. Nodes replicate securely using Ed25519/X25519 cryptography.
 
-**Version**: 0.6.0 (Multi-Agent Coordination)
+**Version**: 0.6.2 (GitHub Integration)
 
 ## Quick Reference
 
@@ -14,7 +14,7 @@ Learning Batteries Market is a **production-ready**, **local-first**, **peer-to-
 # Install
 python -m venv .venv && source .venv/bin/activate && pip install -e .
 
-# Run tests (177 tests)
+# Run tests (191 tests)
 python -m pytest tests/ -v
 
 # Initialize node with encrypted keys
@@ -33,26 +33,30 @@ python examples/basic/multi_agent_demo.py
 
 ```
 lb/
-├── __main__.py      # CLI entry point
-├── node.py          # BatteryNode - main orchestrator
-├── chain.py         # Permissioned append-only chain
-├── group.py         # Knowledge group management
-├── cas.py           # Content-addressed storage (thread-safe)
-├── context_graph.py # Truth-maintenance claims with threading
-├── latent.py        # Latent-space retrieval
-├── keys.py          # Ed25519 + X25519 key management
-├── key_encryption.py# Key encryption at rest (Scrypt + ChaCha20)
-├── crypto.py        # AEAD encryption, sealed boxes
-├── canonical.py     # Deterministic JSON serialization
-├── wire.py          # Frame encoding (4-byte length prefix)
-├── secure_channel.py# Encrypted session with HKDF
-├── p2p.py           # P2P server and RPC client
-├── mcp.py           # Agent connector (stdio JSON-RPC)
-├── config.py        # Configuration management
-├── logging_config.py# Structured logging
-├── validation.py    # Input validation
-├── rate_limit.py    # Connection and request limiting
-└── fs.py            # Filesystem utilities
+├── __main__.py       # CLI entry point
+├── node.py           # BatteryNode - main orchestrator
+├── chain.py          # Permissioned append-only chain
+├── group.py          # Knowledge group management
+├── cas.py            # Content-addressed storage (thread-safe)
+├── context_graph.py  # Truth-maintenance claims with threading
+├── latent.py         # Latent-space retrieval
+├── keys.py           # Ed25519 + X25519 key management
+├── key_encryption.py # Key encryption at rest (Scrypt + ChaCha20)
+├── crypto.py         # AEAD encryption, sealed boxes
+├── canonical.py      # Deterministic JSON serialization
+├── wire.py           # Frame encoding (4-byte length prefix)
+├── secure_channel.py # Encrypted session with HKDF
+├── p2p.py            # P2P server and RPC client
+├── mcp.py            # Agent connector (stdio JSON-RPC, GitHub auto-detect)
+├── config.py         # Configuration management
+├── logging_config.py # Structured logging
+├── validation.py     # Input validation
+├── rate_limit.py     # Connection and request limiting
+├── fs.py             # Filesystem utilities
+├── wal.py            # Write-ahead log for atomic operations
+├── github_integration.py  # GitHub repo integration (init, join, sync)
+├── github_discovery.py    # GitHub API client for collaborator discovery
+└── git_hooks.py      # Git hook management for auto-sync
 ```
 
 ### Core Components

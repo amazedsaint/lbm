@@ -218,9 +218,13 @@ class P2PServer:
                         if not isinstance(gid, str) or gid not in self.node.groups:
                             raise RPCError("not_found", "unknown group")
                         g = self.node.groups[gid]
+                        # TOCTOU fix: verify membership at specific chain state if provided
+                        at_head = params.get("at_head")  # Optional chain head for TOCTOU prevention
+                        if at_head is not None and g.chain.head.block_id != at_head:
+                            raise RPCError("stale_state", f"chain advanced, current head: {g.chain.head.block_id}")
                         if peer_sign not in g.chain.state.members:
                             raise RPCError("forbidden", "not a group member")
-                        resp["result"] = {"group_id": gid, "snapshot": g.chain.snapshot()}
+                        resp["result"] = {"group_id": gid, "snapshot": g.chain.snapshot(), "head": g.chain.head.block_id}
                     elif method == "cas_get":
                         h = params.get("hash")
                         if not isinstance(h, str):
@@ -238,10 +242,16 @@ class P2PServer:
                                 raise RPCError("forbidden", "malformed visibility")
                             gid = parts[1]
                             g = self.node.groups.get(gid)
-                            if g is None or peer_sign not in g.chain.state.members:
+                            if g is None:
+                                raise RPCError("forbidden", "not authorized for object")
+                            # TOCTOU fix: verify membership at specific chain state if provided
+                            at_head = params.get("at_head")
+                            if at_head is not None and g.chain.head.block_id != at_head:
+                                raise RPCError("stale_state", f"chain advanced, current head: {g.chain.head.block_id}")
+                            if peer_sign not in g.chain.state.members:
                                 raise RPCError("forbidden", "not authorized for object")
                             data = self.node.cas.get(h)
-                            resp["result"] = {"hash": h, "data_b64": b64e(data), "meta": meta.to_dict()}
+                            resp["result"] = {"hash": h, "data_b64": b64e(data), "meta": meta.to_dict(), "head": g.chain.head.block_id}
                         else:
                             raise RPCError("forbidden", "unknown visibility")
                     elif method == "market_list_offers":

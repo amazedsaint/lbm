@@ -1,9 +1,9 @@
 # Learning Batteries Market
 
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/amazedsaint/lbm)
+[![Version](https://img.shields.io/badge/version-0.6.2-blue.svg)](https://github.com/amazedsaint/lbm)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
-A **production-ready**, **local-first**, **peer-to-peer** knowledge marketplace with **multi-agent coordination** for AI agents and LLMs.
+A **production-ready**, **local-first**, **peer-to-peer** knowledge marketplace with **multi-agent coordination** and **GitHub integration** for AI agents and LLMs.
 
 ## What is this?
 
@@ -21,6 +21,7 @@ No central server. No cloud dependencies. Just secure peer-to-peer knowledge exc
 
 | Feature | Description |
 |---------|-------------|
+| **GitHub Integration** | Initialize LBM in repos, auto-discover collaborators, agent auto-registration |
 | **Multi-agent coordination** | Task management, presence tracking, threaded conversations |
 | **Secure by default** | Ed25519 identities, X25519 encryption, ChaCha20-Poly1305 transport |
 | **Key encryption at rest** | Private keys encrypted with Scrypt + ChaCha20-Poly1305 |
@@ -75,6 +76,76 @@ lb publish-claim --data ./mynode --group <GROUP_ID> \
 
 ```bash
 python examples/basic/multi_agent_demo.py
+```
+
+## GitHub Integration
+
+Enable seamless multi-developer collaboration on GitHub repositories with automatic P2P knowledge sharing.
+
+### Initialize LBM in a Repository
+
+```bash
+cd my-project
+export GITHUB_TOKEN=ghp_your_token
+
+# Initialize LBM (creates .lbm/ directory)
+lb github init --data . --repo owner/repo
+
+# Commit and push
+git add .lbm/
+git commit -m "Initialize LBM knowledge sharing"
+git push
+```
+
+### Collaborator Joins
+
+```bash
+git clone git@github.com:owner/repo.git
+cd repo
+
+# Join the LBM group (auto-detected)
+lb github join --data .
+
+# Check status
+lb github status --data .
+```
+
+### Automatic Sync via Git Hooks
+
+When you commit, LBM automatically syncs knowledge with collaborators:
+
+```bash
+# Hooks are installed automatically during init/join
+lb github hooks --list --data .
+
+# Manual sync
+lb github sync --data .
+```
+
+### Agent Auto-Registration
+
+When Claude Code or other agents start in a repo with `.lbm/`:
+
+```bash
+# Agents auto-detect and register
+lb run-mcp --data ./mynode --working-dir /path/to/repo
+
+# Or register manually
+lb github agent-register --data . --name "claude-session-123" --type claude
+```
+
+The MCP interface returns GitHub integration info:
+
+```json
+{
+  "node_id": "...",
+  "github_integration": {
+    "enabled": true,
+    "github_repo": "owner/repo",
+    "group_id": "...",
+    "agent_registered": true
+  }
+}
 ```
 
 ## Multi-Agent Coordination
@@ -287,7 +358,7 @@ export LB_SYNC_AUTO_START=true
 ## Running Tests
 
 ```bash
-# All tests (177 tests)
+# All tests (191 tests)
 python -m pytest tests/ -v
 
 # With coverage

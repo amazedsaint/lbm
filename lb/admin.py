@@ -6,11 +6,26 @@ Provides a user-friendly HTML interface to view and manage:
 - Peers and subscriptions
 - Market offers
 - Sync daemon status
+
+SECURITY WARNING:
+-----------------
+This admin panel has NO AUTHENTICATION by default. It is designed for
+localhost-only access. If you need remote access:
+1. Use a reverse proxy (nginx, caddy) with TLS and authentication
+2. Or enable basic auth via the auth_password parameter
+3. NEVER expose this panel directly to the internet without auth
+
+Usage with basic auth:
+    server = AdminServer(node, auth_password="your-secure-password")
 """
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
+import secrets
 import time
 import urllib.parse
 from http import HTTPStatus
@@ -32,12 +47,19 @@ CONTENT_TYPE_JS = "application/javascript; charset=utf-8"
 
 
 class AdminServer:
-    """Lightweight HTTP server for the admin panel."""
+    """Lightweight HTTP server for the admin panel.
 
-    def __init__(self, node: "BatteryNode"):
+    Args:
+        node: The BatteryNode to manage
+        auth_password: Optional password for basic auth. If set, all requests
+                      require HTTP Basic Authentication with username "admin".
+    """
+
+    def __init__(self, node: "BatteryNode", *, auth_password: Optional[str] = None):
         self.node = node
         self._server: Optional[asyncio.AbstractServer] = None
         self._routes: Dict[str, Callable[..., Awaitable[tuple]]] = {}
+        self._auth_password = auth_password
         self._setup_routes()
 
     def _setup_routes(self) -> None:
@@ -53,6 +75,76 @@ class AdminServer:
             "/api/sync": self._handle_api_sync,
             "/api/claims": self._handle_api_claims,
         }
+
+    def _check_auth(self, auth_header: Optional[str]) -> bool:
+        """Check HTTP Basic Authentication.
+
+        Args:
+            auth_header: The Authorization header value (e.g., "Basic dXNlcjpwYXNz")
+
+        Returns:
+            True if authentication is disabled or credentials are valid.
+        """
+        if self._auth_password is None:
+            return True  # Auth disabled
+
+        if not auth_header:
+            return False
+
+        try:
+            # Parse "Basic <base64>"
+            if not auth_header.startswith("Basic "):
+                return False
+
+            encoded = auth_header[6:]
+            decoded = base64.b64decode(encoded).decode("utf-8")
+
+            # Parse "username:password"
+            if ":" not in decoded:
+                return False
+
+            username, password = decoded.split(":", 1)
+
+            # Only accept username "admin"
+            if username != "admin":
+                return False
+
+            # Constant-time comparison to prevent timing attacks
+            return hmac.compare_digest(password, self._auth_password)
+
+        except Exception:
+            return False
+
+    async def _send_unauthorized(
+        self,
+        writer: asyncio.StreamWriter,
+        origin: Optional[str] = None
+    ) -> None:
+        """Send a 401 Unauthorized response with WWW-Authenticate header."""
+        body = b"<h1>401 Unauthorized</h1><p>Authentication required.</p>"
+
+        cors_header = ""
+        if origin:
+            allowed_origins = [
+                "http://127.0.0.1", "http://localhost",
+                "https://127.0.0.1", "https://localhost",
+            ]
+            for allowed in allowed_origins:
+                if origin == allowed or origin.startswith(allowed + ":"):
+                    cors_header = f"Access-Control-Allow-Origin: {origin}\r\n"
+                    break
+
+        response = (
+            f"HTTP/1.1 401 Unauthorized\r\n"
+            f"Content-Type: {CONTENT_TYPE_HTML}\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            f"WWW-Authenticate: Basic realm=\"LBM Admin Panel\"\r\n"
+            f"Connection: close\r\n"
+            f"{cors_header}"
+            f"\r\n"
+        ).encode("utf-8")
+        writer.write(response + body)
+        await writer.drain()
 
     async def start(self, host: str = "127.0.0.1", port: int = 8080) -> None:
         """Start the admin server."""
@@ -80,6 +172,7 @@ class AdminServer:
     ) -> None:
         """Handle an incoming HTTP connection."""
         origin: Optional[str] = None
+        auth_header: Optional[str] = None
         try:
             # Read request line
             request_line = await asyncio.wait_for(
@@ -97,15 +190,24 @@ class AdminServer:
             method = parts[0]
             path = parts[1]
 
-            # Read headers and extract Origin for CORS
+            # Read headers and extract Origin for CORS and Authorization for auth
             while True:
                 header_line = await asyncio.wait_for(reader.readline(), timeout=10.0)
                 if header_line in (b"\r\n", b"\n", b""):
                     break
-                # Parse Origin header for CORS
                 header_str = header_line.decode("utf-8", errors="replace").strip()
-                if header_str.lower().startswith("origin:"):
+                header_lower = header_str.lower()
+                # Parse Origin header for CORS
+                if header_lower.startswith("origin:"):
                     origin = header_str[7:].strip()
+                # Parse Authorization header for Basic Auth
+                elif header_lower.startswith("authorization:"):
+                    auth_header = header_str[14:].strip()
+
+            # Check authentication
+            if not self._check_auth(auth_header):
+                await self._send_unauthorized(writer, origin)
+                return
 
             # Parse path and query string
             parsed = urllib.parse.urlparse(path)
@@ -210,6 +312,7 @@ class AdminServer:
             "groups_count": len(self.node.groups),
             "offers_count": len(self.node.offer_book),
             "version": __version__,
+            "auth_enabled": self._auth_password is not None,
         }
         return 200, CONTENT_TYPE_JSON, json.dumps(data).encode()
 
@@ -740,6 +843,16 @@ class AdminServer:
                 padding: 0.5rem;
             }
         }
+
+        .security-warning {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            color: #92400e;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+        }
     </style>
 </head>
 <body>
@@ -749,6 +862,12 @@ class AdminServer:
     </div>
 
     <div class="container">
+        <!-- Security Warning Banner (shown when auth disabled) -->
+        <div id="security-warning" class="security-warning" style="display: none;">
+            <strong>Security Warning:</strong> Authentication is disabled. This panel should only be accessed from localhost.
+            Do not expose this server to the network without enabling authentication.
+        </div>
+
         <div class="nav-tabs">
             <button class="nav-tab active" data-tab="overview">Overview</button>
             <button class="nav-tab" data-tab="groups">Groups</button>
@@ -948,6 +1067,14 @@ class AdminServer:
                 document.getElementById('sign-pub').textContent = data.sign_pub;
                 document.getElementById('enc-pub').textContent = data.enc_pub;
                 document.getElementById('data-dir').textContent = data.data_dir;
+
+                // Show security warning if auth is disabled
+                const warningEl = document.getElementById('security-warning');
+                if (!data.auth_enabled) {
+                    warningEl.style.display = 'block';
+                } else {
+                    warningEl.style.display = 'none';
+                }
             } catch (e) {
                 console.error('Failed to load node info:', e);
             }
@@ -1285,10 +1412,28 @@ class AdminServer:
 </html>'''
 
 
-async def run_admin(node: "BatteryNode", host: str = "127.0.0.1", port: int = 8080) -> None:
-    """Run the admin panel server."""
-    server = AdminServer(node)
+async def run_admin(
+    node: "BatteryNode",
+    host: str = "127.0.0.1",
+    port: int = 8080,
+    *,
+    auth_password: Optional[str] = None
+) -> None:
+    """Run the admin panel server.
+
+    Args:
+        node: The BatteryNode to manage
+        host: Host to bind to (default: 127.0.0.1 for localhost only)
+        port: Port to listen on (default: 8080)
+        auth_password: Optional password for HTTP Basic Auth. If set,
+                      all requests require authentication with username "admin".
+    """
+    server = AdminServer(node, auth_password=auth_password)
     await server.start(host, port)
     print(f"Admin panel running at http://{host}:{port}")
+    if auth_password:
+        print("Authentication enabled (username: admin)")
+    else:
+        print("WARNING: No authentication configured - localhost access only recommended")
     print("Press Ctrl+C to stop")
     await server.serve_forever()

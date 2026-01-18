@@ -1,6 +1,6 @@
 # Learning Battery Market - API Reference
 
-**Version**: 0.6.0
+**Version**: 0.6.2
 
 ## Overview
 
@@ -515,3 +515,48 @@ lb sync-now --data ./mynode --group GID --host 192.168.1.100 --port 7337
 lb create-offer --data ./mynode --group GID --title "..." --price 100
 lb buy-offer --data ./mynode --offer OID --host 192.168.1.100 --port 7337
 ```
+
+### GitHub Integration
+```bash
+# Initialize LBM in a GitHub repository
+lb github init --data . --repo owner/repo --name "project-name"
+
+# Join an existing LBM-enabled repository
+lb github join --data .
+
+# Sync knowledge with collaborators
+lb github sync --data .
+lb github sync --data . --commit "commit message" --files "file1.py,file2.py"
+
+# Show LBM status
+lb github status --data .
+
+# Register an AI agent
+lb github agent-register --data . --name "claude-session-123" --type claude
+
+# Manage git hooks
+lb github hooks --list --data .
+lb github hooks --install --data .
+lb github hooks --uninstall --data .
+lb github hooks --install --force --data .  # Overwrite existing hooks
+```
+
+### MCP with GitHub Integration
+```bash
+# Run MCP with working directory for GitHub integration
+lb run-mcp --data ./mynode --working-dir /path/to/repo
+
+# Run MCP with agent name for auto-registration
+lb run-mcp --data ./mynode --agent-name "claude-code"
+```
+
+---
+
+## Environment Variables
+
+### GitHub Integration
+
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_TOKEN` | GitHub personal access token for API authentication |
+| `LBM_REPO_PATH` | Override working directory for .lbm/ detection |
